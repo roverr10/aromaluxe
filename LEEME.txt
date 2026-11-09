@@ -1,0 +1,15 @@
+AROMALUXE - SERVIDOR LOCAL
+==========================
+
+Requisito: tener Node.js instalado (https://nodejs.org, version 18 o superior).
+
+PASOS
+1. Descomprime esta carpeta.
+2. Windows: doble clic en  iniciar.bat
+   Mac/Linux: en terminal ->  ./iniciar.sh
+   (o manualmente: npm install  y luego  npm run dev)
+3. Se abrira el navegador en http://localhost:5173
+
+Tu codigo esta en src/App.tsx. Al guardar cambios, la pagina se actualiza sola.
+
+Para generar la version final (carpeta dist): npm run build

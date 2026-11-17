@@ -12,6 +12,7 @@
     "preview": "vite preview --host --open"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.2.0",
     "cookie-parser": "^1.4.7",

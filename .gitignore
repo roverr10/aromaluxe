@@ -1,0 +1,22 @@
+# Dependencias
+node_modules/
+
+# Build generado (Railway lo reconstruye automáticamente desde el repo)
+dist/
+
+# Datos y archivos locales del backend (no subir a GitHub)
+server/data/
+server/uploads/
+server/.env
+
+# Variables de entorno
+.env
+.env.*
+!.env.example
+!server/.env.example
+
+# Archivos temporales / de diagnóstico
+_check_remote.ps1
+*.log
+.DS_Store
+Thumbs.db

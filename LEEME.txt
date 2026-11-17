@@ -1,7 +1,7 @@
-AROMALUXE - SERVIDOR LOCAL
-==========================
+AROMALUXE - APP LOCAL CON BACKEND
+=================================
 
-Requisito: tener Node.js instalado (https://nodejs.org, version 18 o superior).
+Requisito: Node.js 18 o superior (https://nodejs.org).
 
 PASOS
 1. Descomprime esta carpeta.
@@ -10,6 +10,51 @@ PASOS
    (o manualmente: npm install  y luego  npm run dev)
 3. Se abrira el navegador en http://localhost:5173
 
-Tu codigo esta en src/App.tsx. Al guardar cambios, la pagina se actualiza sola.
+`npm run dev` levanta DOS procesos a la vez:
+  - API (Express + SQLite) en http://localhost:3001
+  - Web (Vite) en http://localhost:5173
+Vite redirige /api y /uploads hacia la API, asi que no necesitas abrir el puerto 3001.
 
-Para generar la version final (carpeta dist): npm run build
+DONDE SE GUARDAN LOS DATOS
+- Base de datos: server/data/aromaluxe.db (SQLite)
+- Imagenes subidas: server/uploads/
+- Tu codigo fuente: src/App.jsx (y su copia src/App.tsx)
+
+La primera vez que abres la pagina, el frontend siembra la base de datos con el
+catalogo inicial. Despues, todos los cambios del panel de administracion se
+guardan en SQLite. El carrito sigue en el navegador (localStorage).
+
+USUARIOS
+- Administrador: aromaluxe.catalogo@gmail.com / seccion2
+  (se crea automaticamente la primera vez que arranca la API)
+- Clientes: boton "Ingresar con Google". Sin Client ID funciona en modo
+  demostracion (ingresas tu correo). La sesion se guarda en una cookie segura.
+
+GOOGLE REAL (OPCIONAL)
+1. Crea un Client ID en https://console.cloud.google.com/apis/credentials
+2. Copia server/.env.example a server/.env
+3. Completa GOOGLE_CLIENT_ID=tu-client-id.apps.googleusercontent.com
+4. Reinicia `npm run dev`. El modal mostrara el boton oficial de Google y el
+   token se verificara en el servidor con google-auth-library.
+   Tambien puedes desactivar el modo demo con ALLOW_DEMO_AUTH=false.
+
+CAMBIAR CREDENCIALES DEL ADMIN
+Copia server/.env.example a server/.env y edita ADMIN_EMAIL / ADMIN_PASSWORD.
+Si el administrador ya existe en la BD, cambia la contrasena desde el panel
+(Modulo Usuarios) o elimina server/data/aromaluxe.db para empezar de cero.
+
+COTIZACIONES Y CONTACTO
+Cada cotizacion o mensaje de WhatsApp queda registrado en la tabla `leads`.
+Para verlas: Panel Admin -> Administracion -> Cotizaciones.
+Tambien estan disponibles como API en:
+  http://localhost:5173/api/leads
+Puedes abrir esa URL directamente: devuelve las cotizaciones en JSON sin
+necesitar iniciar sesion (la aplicacion es local, solo localhost).
+
+COMANDOS UTILES
+- npm run build       -> genera la carpeta dist/
+- npm run preview     -> sirve dist/
+- npm run dev:api     -> solo la API
+- npm run dev:web     -> solo Vite
+
+Nota: no subas server/.env ni server/data/ a un repositorio publico.

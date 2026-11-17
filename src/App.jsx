@@ -67,6 +67,7 @@ import {
 } from 'lucide-react';
 import { PERFUME_PROFILES } from './perfumeProfiles';
 import { BlogPublic, BlogAdmin, INITIAL_BLOG_POSTS } from './Blog';
+import { api } from './api';
 import { FAVICON_DATA_URL, APPLE_TOUCH_DATA_URL } from './brandAssets';
 
 // ============================================================================
@@ -383,18 +384,53 @@ const getFragranticaProfile = (product) => {
 // ============================================================================
 // 3. ILUSTRADOR MINIMALISTA DE FRASCOS ÁRABES (ESTÉTICA BOUTIQUE)
 // ============================================================================
+// Icono oficial de Google (colores de marca) para el botón de acceso
+const GoogleIcon = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 48 48" aria-hidden="true">
+    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+  </svg>
+);
+
 const PerfumeBottleVisual = ({ product, className = 'w-full h-48', compact = false }) => {
   const [imgError, setImgError] = useState(false);
+  const [hoverError, setHoverError] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
-  if (product.image && !imgError) {
+  const hasStaticImage = !!product.image && !imgError;
+  const hasHoverImage = !!product.interactiveImage && !hoverError;
+  const showHoverAsMain = !hasStaticImage && hasHoverImage;
+
+  if (hasStaticImage || hasHoverImage) {
     return (
-      <div className={`relative overflow-hidden flex items-center justify-center bg-[#FAF9F6] ${className}`}>
-        <img
-          src={product.image}
-          alt={product.name}
-          onError={() => setImgError(true)}
-          className="w-full h-full object-contain p-3 transition-transform duration-500 group-hover:scale-108"
-        />
+      <div
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        className={'relative overflow-hidden flex items-center justify-center bg-[#FAF9F6] ' + className}
+      >
+        {hasStaticImage && (
+          <img
+            src={product.image}
+            alt={product.name}
+            onError={() => setImgError(true)}
+            className={'w-full h-full object-contain p-3 transition-all duration-500 group-hover:scale-108 ' + (hasHoverImage ? (isHovered ? 'opacity-0 scale-105' : 'opacity-100') : '')}
+          />
+        )}
+        {hasHoverImage && (
+          <img
+            src={product.interactiveImage}
+            alt={product.name + ' - vista interactiva'}
+            onError={() => setHoverError(true)}
+            className={'absolute inset-0 w-full h-full object-contain p-3 transition-all duration-500 ease-out ' + (showHoverAsMain || isHovered ? 'opacity-100 scale-100' : 'opacity-0 scale-105')}
+          />
+        )}
+        {hasStaticImage && hasHoverImage && (
+          <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-[#0A0B11]/75 px-2 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-[#D1B27E] opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+            Vista interactiva
+          </span>
+        )}
       </div>
     );
   }
@@ -1369,6 +1405,7 @@ const INITIAL_SITE_CONFIG = {
   integrations: {
     whatsappApiActive: true,
     googleAnalyticsId: '',
+    googleClientId: '',
     metaPixelId: '',
     smtpSender: 'aromaluxe.contacto@gmail.com'
   },
@@ -1576,6 +1613,7 @@ const applyOfficialProfiles = (list) =>
   list.map((p) => (PERFUME_PROFILES[p.id] ? { ...p, fragrantica: PERFUME_PROFILES[p.id] } : p));
 
 export default function App() {
+  const [apiHydrated, setApiHydrated] = useState(false);
   // ============================================================================
   // ESTADOS PRINCIPALES Y PERSISTENCIA
   // ============================================================================
@@ -1842,9 +1880,119 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [authSuccessMsg, setAuthSuccessMsg] = useState('');
 
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [demoGoogleEmail, setDemoGoogleEmail] = useState('');
+  const googleButtonRef = useRef(null);
+  const googleClientId = (siteConfig.integrations?.googleClientId || '').trim();
+
+  // ============================================================================
+  // INICIO DE SESIÓN CON GOOGLE (GIS si hay Client ID / modo demo si no lo hay)
+  // ============================================================================
+  const finishGoogleLogin = async (user, fallbackName) => {
+    setCurrentUser(user);
+    setAuthError('');
+    setDemoGoogleEmail('');
+    setIsAuthModalOpen(false);
+    showToast('¡Hola, ' + (user.name || fallbackName).split(' ')[0] + '! Sesión iniciada con Google');
+  };
+
+  const handleGoogleCredentialResponse = async (response) => {
+    try {
+      const { user } = await api.loginGoogle(response.credential);
+      await finishGoogleLogin(user, 'Usuario');
+    } catch (err) {
+      setAuthError(err.message || 'No se pudo verificar la cuenta de Google.');
+    }
+  };
+
+  const handleDemoGoogle = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    const email = demoGoogleEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setAuthError('Ingresa un correo de Google válido.');
+      return;
+    }
+    const name = email
+      .split('@')[0]
+      .replace(/[._-]+/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+    try {
+      const { user } = await api.loginDemo(email, name);
+      await finishGoogleLogin(user, name);
+    } catch (err) {
+      setAuthError(err.message || 'No se pudo iniciar sesión.');
+    }
+  };
+
+  useEffect(() => {
+    if (!isAuthModalOpen || !googleClientId) return;
+
+    const renderButton = () => {
+      if (!window.google?.accounts?.id || !googleButtonRef.current) return;
+      window.google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: handleGoogleCredentialResponse,
+        auto_select: false,
+        cancel_on_tap_outside: false
+      });
+      googleButtonRef.current.innerHTML = '';
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        theme: 'filled_black',
+        size: 'large',
+        width: googleButtonRef.current.clientWidth || 320,
+        text: 'continue_with',
+        shape: 'pill'
+      });
+    };
+
+    if (window.google?.accounts?.id) {
+      renderButton();
+      return;
+    }
+
+    const existing = document.querySelector('script[data-google-gis]');
+    if (existing) {
+      existing.addEventListener('load', renderButton);
+      return () => existing.removeEventListener('load', renderButton);
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.dataset.googleGis = 'true';
+    script.onload = renderButton;
+    document.head.appendChild(script);
+  }, [isAuthModalOpen, googleClientId]);
+
+
+
   // Panel de Administración (12 Módulos)
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
   const [adminTab, setAdminTab] = useState('dashboard');
+
+  // Cotizaciones y mensajes guardados en la base de datos
+  const [leads, setLeads] = useState([]);
+  const [leadsLoading, setLeadsLoading] = useState(false);
+  const [leadsError, setLeadsError] = useState('');
+
+  const loadLeads = async () => {
+    setLeadsLoading(true);
+    setLeadsError('');
+    try {
+      const { leads: items } = await api.getLeads();
+      setLeads(items || []);
+    } catch (err) {
+      setLeadsError(err.message || 'No se pudieron cargar las cotizaciones.');
+    } finally {
+      setLeadsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (adminTab === 'leads') loadLeads();
+  }, [adminTab]);
 
   // Blog: publicaciones y navegación pública (#blog, #blog/url-del-articulo)
   const [blogPosts, setBlogPosts] = useState(() => {
@@ -1893,13 +2041,11 @@ export default function App() {
     };
   }, []);
   useEffect(() => {
-    try {
-      localStorage.setItem('aromaluxe_blog_v1', JSON.stringify(blogPosts));
-    } catch (e) {
-      console.error(e);
-      showToast('No se pudo guardar el blog: almacenamiento del navegador lleno (usa imágenes más livianas)');
-    }
-  }, [blogPosts]);
+    if (!apiHydrated) return;
+    api.saveCollection('blog', blogPosts).catch((e) => {
+      if (e.status !== 401) console.error('No se pudo guardar el blog', e);
+    });
+  }, [blogPosts, apiHydrated]);
   const [editingProduct, setEditingProduct] = useState(null);
   const [adminSearch, setAdminSearch] = useState('');
   const [adminStatusFilter, setAdminStatusFilter] = useState('ALL');
@@ -1915,6 +2061,59 @@ export default function App() {
   const [editingAdminUser, setEditingAdminUser] = useState(null);
   const [activeBannerIdx, setActiveBannerIdx] = useState(0);
   const fileInputRef = useRef(null);
+  const interactiveFileInputRef = useRef(null);
+
+
+  // Carga inicial desde la API (SQLite). Hasta que termina, no se guarda nada.
+  useEffect(() => {
+    let alive = true;
+    api.getState()
+      .then(({ state, user, needsBootstrap }) => {
+        if (!alive) return;
+        const apply = (value, setter) => {
+          if (value !== null && value !== undefined) setter(value);
+        };
+        apply(state.products, setProducts);
+        apply(state.siteConfig, (v) => setSiteConfig((prev) => ({ ...prev, ...v })));
+        apply(state.brands, setBrandsList);
+        apply(state.categories, setCategoriesList);
+        apply(state.families, setOlfactoryFamilies);
+        apply(state.inventoryLogs, setInventoryLogs);
+        apply(state.banners, setBannersList);
+        apply(state.coupons, setCouponsList);
+        apply(state.reviews, setReviewsList);
+        apply(state.audit, setAdminActivityLogs);
+        apply(state.blog, setBlogPosts);
+        apply(state.telemetry, setPerfumeTelemetry);
+        apply(state.cookieConsent, setCookieConsent);
+        if (Array.isArray(state.users) && state.users.length) setUsersDb(state.users);
+        if (needsBootstrap) {
+          api.bootstrap({
+            products,
+            siteConfig,
+            brands: brandsList,
+            categories: categoriesList,
+            families: olfactoryFamilies,
+            inventoryLogs,
+            banners: bannersList,
+            coupons: couponsList,
+            reviews: reviewsList,
+            audit: adminActivityLogs,
+            blog: blogPosts,
+            telemetry: perfumeTelemetry,
+            cookieConsent
+          }).catch((e) => console.error('No se pudo sembrar la base de datos', e));
+        }
+        setCurrentUser(user || null);
+        setApiHydrated(true);
+      })
+      .catch((err) => {
+        console.error('No se pudo conectar con la API; se usa el almacenamiento local.', err);
+        setApiHydrated(true);
+      });
+    return () => { alive = false; };
+  }, []);
+
 
   const logAdminAction = (actionText) => {
     const newEntry = {
@@ -1938,59 +2137,30 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Persistencia en localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('aromaluxe_products_v3', JSON.stringify(products));
-      localStorage.setItem(PROFILES_APPLIED_KEY, '1');
-    } catch (e) {
-      console.error(e);
-    }
-  }, [products]);
+  // Persistencia en la API (SQLite) — solo después de la carga inicial
+  const persist = (key, value) => {
+    if (!apiHydrated) return;
+    api.saveCollection(key, value).catch((e) => {
+      if (e.status !== 401) console.error('No se pudo guardar ' + key, e);
+    });
+  };
 
+  useEffect(() => { persist('products', products); }, [products, apiHydrated]);
+  useEffect(() => { persist('siteConfig', siteConfig); }, [siteConfig, apiHydrated]);
   useEffect(() => {
-    try {
-      localStorage.setItem('aromaluxe_config_v3', JSON.stringify(siteConfig));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [siteConfig]);
+    persist('brands', brandsList);
+    persist('categories', categoriesList);
+    persist('families', olfactoryFamilies);
+    persist('inventoryLogs', inventoryLogs);
+    persist('banners', bannersList);
+    persist('coupons', couponsList);
+    persist('reviews', reviewsList);
+    persist('audit', adminActivityLogs);
+  }, [brandsList, categoriesList, olfactoryFamilies, inventoryLogs, bannersList, couponsList, reviewsList, adminActivityLogs, apiHydrated]);
+  useEffect(() => { persist('users', usersDb); }, [usersDb, apiHydrated]);
+  useEffect(() => { persist('telemetry', perfumeTelemetry); }, [perfumeTelemetry, apiHydrated]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('aromaluxe_brands_v1', JSON.stringify(brandsList));
-      localStorage.setItem('aromaluxe_categories_v1', JSON.stringify(categoriesList));
-      localStorage.setItem('aromaluxe_families_v1', JSON.stringify(olfactoryFamilies));
-      localStorage.setItem('aromaluxe_inv_logs_v1', JSON.stringify(inventoryLogs));
-      localStorage.setItem('aromaluxe_banners_v1', JSON.stringify(bannersList));
-      localStorage.setItem('aromaluxe_coupons_v1', JSON.stringify(couponsList));
-      localStorage.setItem('aromaluxe_reviews_v1', JSON.stringify(reviewsList));
-      localStorage.setItem('aromaluxe_audit_v1', JSON.stringify(adminActivityLogs));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [brandsList, categoriesList, olfactoryFamilies, inventoryLogs, bannersList, couponsList, reviewsList, adminActivityLogs]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('aromaluxe_users_v4', JSON.stringify(usersDb));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [usersDb]);
-
-  useEffect(() => {
-    try {
-      if (currentUser) {
-        localStorage.setItem('aromaluxe_session_v4', JSON.stringify(currentUser));
-      } else {
-        localStorage.removeItem('aromaluxe_session_v4');
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }, [currentUser]);
-
+  // El carrito sigue en localStorage para que no se pierda al recargar
   useEffect(() => {
     try {
       localStorage.setItem('aromaluxe_cart_v2', JSON.stringify(quoteCart));
@@ -1998,14 +2168,6 @@ export default function App() {
       console.error(e);
     }
   }, [quoteCart]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('aromaluxe_telemetry_v1', JSON.stringify(perfumeTelemetry));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [perfumeTelemetry]);
 
   const handleSaveCookieConsent = (mode) => {
     const payload =
@@ -2016,11 +2178,7 @@ export default function App() {
         : { ...cookiePrefsDraft, essential: true, updatedAt: new Date().toLocaleString('es-CL') };
     setCookieConsent(payload);
     setIsCookieSettingsOpen(false);
-    try {
-      localStorage.setItem('aromaluxe_cookie_consent_v1', JSON.stringify(payload));
-    } catch (e) {
-      console.error(e);
-    }
+    persist('cookieConsent', payload);
     showToast(
       mode === 'essential'
         ? 'Preferencias guardadas: Solo cookies esenciales activas'
@@ -2259,6 +2417,15 @@ export default function App() {
       `¿Me confirman disponibilidad y datos para finalizar la compra?`;
 
     const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+    api.saveLead('quote', {
+      customer: currentUser ? { name: currentUser.name, email: currentUser.email } : null,
+      items: quoteCart,
+      subtotal: cartSubtotalAmount,
+      discount: cartDiscountAmount,
+      total: cartTotalAmount,
+      coupon: appliedCoupon?.code || null,
+      message
+    }).catch(() => {});
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
@@ -2272,6 +2439,10 @@ export default function App() {
       customText ||
       'Hola AromaLuxe, vengo desde la página web y me gustaría recibir asesoría sobre sus perfumes árabes.';
     const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+    api.saveLead('contact', {
+      message,
+      customer: currentUser ? { name: currentUser.name, email: currentUser.email } : null
+    }).catch(() => {});
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
@@ -2300,63 +2471,20 @@ export default function App() {
   // ============================================================================
   // SISTEMA DE AUTENTICACIÓN CONFIDENCIAL: LOGIN, REGISTRO Y RECUPERACIÓN
   // ============================================================================
-  const handleLoginSubmit = (e) => {
+  const handleLoginSubmit = async (e) => {
     e.preventDefault();
     setAuthError('');
     setAuthSuccessMsg('');
-
-    const cleanEmail = loginEmail.trim().toLowerCase();
-    const pass = loginPassword.trim();
-
-    // Verificación para el administrador: aromaluxe.catalogo@gmail.com + "seccion2"
-    if (cleanEmail === ADMIN_EMAIL) {
-      const adminAccount = usersDb.find((u) => u.email.toLowerCase() === ADMIN_EMAIL);
-      const customPass = adminAccount?.password;
-      const isValidAdminPass =
-        pass === 'seccion2' || (customPass && pass === customPass);
-
-      if (isValidAdminPass) {
-        const loggedAdmin = {
-          name: adminAccount?.name || 'Administrador AromaLuxe',
-          email: ADMIN_EMAIL,
-          role: adminAccount?.role || 'Super Administrador',
-          isAdmin: true
-        };
-        setCurrentUser(loggedAdmin);
-        setIsAuthModalOpen(false);
-        setIsAdminPanelOpen(true);
-        setLoginPassword('');
-        showToast('Bienvenido al Panel de Administración de AromaLuxe');
-        return;
-      } else {
-        setAuthError('Correo o contraseña incorrectos.');
-        return;
-      }
-    }
-
-    // Verificación para otros usuarios o administradores creados en el módulo Usuarios y Permisos
-    const foundUser = usersDb.find(
-      (u) => u.email.toLowerCase() === cleanEmail && u.password === loginPassword
-    );
-
-    if (foundUser) {
-      const hasAdminAccess =
-        foundUser.isAdmin === true ||
-        (foundUser.role && foundUser.role !== 'customer');
-      setCurrentUser({
-        name: foundUser.name,
-        email: foundUser.email,
-        role: foundUser.role || 'customer',
-        isAdmin: hasAdminAccess
-      });
-      setIsAuthModalOpen(false);
+    try {
+      const { user } = await api.loginAdmin(loginEmail, loginPassword);
+      setCurrentUser(user);
       setLoginPassword('');
-      if (hasAdminAccess) {
-        setIsAdminPanelOpen(true);
-      }
-      showToast(`Hola nuevamente, ${foundUser.name}`);
-    } else {
-      setAuthError('Correo o contraseña incorrectos. Si no tienes cuenta, puedes registrarte.');
+      setIsAuthModalOpen(false);
+      setShowAdminLogin(false);
+      setIsAdminPanelOpen(true);
+      showToast('Bienvenido al Panel de Administración de AromaLuxe');
+    } catch (err) {
+      setAuthError(err.message || 'No se pudo iniciar sesión.');
     }
   };
 
@@ -2446,18 +2574,28 @@ export default function App() {
   // ============================================================================
   // FUNCIONES DEL PANEL DE ADMINISTRACIÓN (12 MÓDULOS)
   // ============================================================================
-  const handleImageFileUpload = (e) => {
+  const handleImageFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target.result;
-      if (editingProduct) {
-        setEditingProduct({ ...editingProduct, image: base64 });
-      }
+    try {
+      const { url } = await api.uploadImage(file);
+      if (editingProduct) setEditingProduct({ ...editingProduct, image: url });
       showToast('Fotografía cargada. Recuerda guardar los cambios.');
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      showToast(err.message || 'No se pudo subir la fotografía.');
+    }
+  };
+
+  const handleInteractiveImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const { url } = await api.uploadImage(file);
+      if (editingProduct) setEditingProduct({ ...editingProduct, interactiveImage: url });
+      showToast('Imagen interactiva cargada. Recuerda guardar los cambios.');
+    } catch (err) {
+      showToast(err.message || 'No se pudo subir la imagen interactiva.');
+    }
   };
 
   const handleSaveProduct = (e) => {
@@ -2957,7 +3095,8 @@ export default function App() {
                     </button>
                   )}
                   <button
-                    onClick={() => {
+                    onClick={async () => {
+                      try { await api.logout(); } catch {}
                       setCurrentUser(null);
                       setIsAdminPanelOpen(false);
                       showToast('Has cerrado sesión correctamente');
@@ -2978,8 +3117,8 @@ export default function App() {
                   }}
                   className="btn-interactive flex items-center gap-2 text-xs text-white hover:text-[#0A0B11] bg-white/5 hover:bg-[#D1B27E] border border-white/20 hover:border-[#D1B27E] px-3.5 py-2 rounded-full font-medium group"
                 >
-                  <User className="w-3.5 h-3.5 text-[#D1B27E] group-hover:text-[#0A0B11] transition-colors" />
-                  <span>Iniciar Sesión</span>
+                  <GoogleIcon className="w-3.5 h-3.5" />
+                  <span>Ingresar con Google</span>
                 </button>
               )}
 
@@ -4440,12 +4579,11 @@ export default function App() {
       )}
 
       {/* =====================================================================
-          INTERFAZ DE INICIAR SESIÓN, REGISTRO Y RECUPERAR CONTRASEÑA
-          (100% CONFIDENCIAL: SIN PISTAS NI AUTOCOMPLETADO DE ADMIN)
+          INICIO DE SESIÓN CON GOOGLE + ACCESO ADMINISTRATIVO RESERVADO
       ===================================================================== */}
       {isAuthModalOpen && (
         <div
-          onClick={() => setIsAuthModalOpen(false)}
+          onClick={() => { setIsAuthModalOpen(false); setShowAdminLogin(false); }}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs"
         >
           <div
@@ -4453,361 +4591,122 @@ export default function App() {
             className="animate-modal-pop bg-[#0A0B11] text-white border border-[#D1B27E]/70 rounded-2xl max-w-md w-full p-6 sm:p-8 shadow-2xl relative"
           >
             <button
-              onClick={() => setIsAuthModalOpen(false)}
+              onClick={() => { setIsAuthModalOpen(false); setShowAdminLogin(false); }}
               className="absolute top-4 right-4 text-neutral-400 hover:text-white transition-transform hover:rotate-90"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="text-center mb-6">
+            <div className="text-center mb-7">
               <AromaLuxeLogo size="xs" showText={false} />
               <h3 className="font-serif-luxury text-2xl font-semibold text-[#D1B27E] mt-2">
-                {authView === 'login' && 'Iniciar Sesión'}
-                {authView === 'register' && 'Crear Cuenta en AromaLuxe'}
-                {authView === 'forgot' && 'Recuperar Contraseña'}
-                {authView === 'reset-simulation' && 'Crear Nueva Contraseña'}
+                Iniciar Sesión
               </h3>
-              <p className="text-xs text-neutral-300 mt-1">
-                {authView === 'login' && 'Ingresa con tu correo electrónico y contraseña'}
-                {authView === 'register' && 'Regístrate con tu nombre, correo y contraseña'}
-                {authView === 'forgot' && `Te enviaremos un enlace desde ${ADMIN_EMAIL}`}
-                {authView === 'reset-simulation' && `Restableciendo clave para ${recoveryEmail}`}
+              <p className="text-xs text-neutral-300 mt-1 leading-relaxed">
+                Accede con tu cuenta de Google para guardar tus datos y cotizar más rápido.
               </p>
             </div>
 
-            {/* Pestañas rápidas entre Iniciar Sesión y Registrarse */}
-            {(authView === 'login' || authView === 'register') && (
-              <div className="grid grid-cols-2 gap-2 p-1 bg-white/10 rounded-lg mb-5 border border-white/15 text-xs">
+            {googleClientId ? (
+              <div className="flex justify-center min-h-[44px]" ref={googleButtonRef} />
+            ) : (
+              <form onSubmit={handleDemoGoogle} className="space-y-4">
                 <button
                   type="button"
-                  onClick={() => {
-                    setAuthView('login');
-                    setAuthError('');
-                    setAuthSuccessMsg('');
-                  }}
-                  className={`py-2 rounded-md font-semibold transition-all duration-200 active:scale-95 ${
-                    authView === 'login'
-                      ? 'bg-[#D1B27E] text-[#0A0B11] shadow'
-                      : 'text-neutral-300 hover:text-white'
-                  }`}
+                  onClick={() => document.getElementById('demo-google-email')?.focus()}
+                  className="w-full bg-white text-[#3C4043] font-semibold text-sm py-3.5 px-4 rounded-full flex items-center justify-center gap-3 shadow-lg hover:bg-neutral-100 transition"
                 >
-                  Iniciar Sesión
+                  <GoogleIcon className="w-5 h-5" />
+                  Continuar con Google
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthView('register');
-                    setAuthError('');
-                    setAuthSuccessMsg('');
-                  }}
-                  className={`py-2 rounded-md font-semibold transition-all duration-200 active:scale-95 ${
-                    authView === 'register'
-                      ? 'bg-[#D1B27E] text-[#0A0B11] shadow'
-                      : 'text-neutral-300 hover:text-white'
-                  }`}
-                >
-                  Registrarse
-                </button>
+                <div className="p-3.5 rounded-lg border border-white/10 bg-white/5">
+                  <label htmlFor="demo-google-email" className="block text-xs text-neutral-300 mb-1.5">
+                    Modo demostración · ingresa tu correo Google
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      id="demo-google-email"
+                      type="email"
+                      value={demoGoogleEmail}
+                      onChange={(e) => { setDemoGoogleEmail(e.target.value); setAuthError(''); }}
+                      placeholder="tu.correo@gmail.com"
+                      className="aroma-input flex-1 border border-neutral-300 rounded-md px-3 py-2 text-xs"
+                    />
+                    <button
+                      type="submit"
+                      className="bg-[#D1B27E] text-[#0A0B11] font-bold text-xs px-3 rounded-md hover:opacity-90 transition"
+                    >
+                      Entrar
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
+
+            {authError && (
+              <div className="mt-4 p-2.5 bg-red-500/20 border border-red-400/60 text-red-200 text-xs rounded-md">
+                {authError}
               </div>
             )}
 
-            {/* VISTA 1: INICIAR SESIÓN */}
-            {authView === 'login' && (
-              <form onSubmit={handleLoginSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-[#F4F4F4] mb-1.5">
-                    Correo electrónico
-                  </label>
+            <p className="text-center text-[10px] text-neutral-500 mt-5 leading-relaxed">
+              Al continuar aceptas la{' '}
+              <button type="button" onClick={() => setActiveLegalModal('privacy')} className="text-[#D1B27E] underline">
+                Política de Privacidad
+              </button>{' '}
+              y los{' '}
+              <button type="button" onClick={() => setActiveLegalModal('terms')} className="text-[#D1B27E] underline">
+                Términos y Condiciones
+              </button>
+              .
+            </p>
+
+            <div className="mt-5 border-t border-white/10 pt-4 text-center">
+              {!showAdminLogin ? (
+                <button
+                  type="button"
+                  onClick={() => { setShowAdminLogin(true); setAuthError(''); }}
+                  className="text-[11px] text-neutral-500 hover:text-[#D1B27E] transition inline-flex items-center gap-1.5"
+                >
+                  <Lock className="w-3 h-3" />
+                  Acceso administrativo
+                </button>
+              ) : (
+                <form onSubmit={handleLoginSubmit} className="space-y-2.5 text-left">
+                  <p className="text-[10px] text-neutral-400 text-center mb-2">
+                    Ingreso exclusivo del equipo AromaLuxe
+                  </p>
                   <input
                     type="email"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="ejemplo@correo.com"
-                    className="aroma-input w-full border-2 border-neutral-300 focus:border-[#D1B27E] focus:ring-2 focus:ring-[#D1B27E]/30 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none transition-all"
-                    required
+                    placeholder="Correo administrativo"
+                    className="aroma-input w-full border border-neutral-300 rounded-md px-3 py-2 text-xs"
                   />
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-medium text-[#F4F4F4]">
-                      Contraseña
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAuthView('forgot');
-                        setAuthError('');
-                        setAuthSuccessMsg('');
-                      }}
-                      className="text-[11px] text-[#D1B27E] hover:underline"
-                    >
-                      ¿Olvidaste tu contraseña?
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={loginPassword}
-                      onChange={(e) => setLoginPassword(e.target.value)}
-                      placeholder="Ingresa tu contraseña"
-                      className="aroma-input w-full border-2 border-neutral-300 focus:border-[#D1B27E] focus:ring-2 focus:ring-[#D1B27E]/30 rounded-lg pl-3.5 pr-10 py-2.5 text-sm focus:outline-none transition-all"
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((prev) => !prev)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#686868] hover:text-[#0A0B11]"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                {authError && (
-                  <div className="p-2.5 bg-red-500/20 border border-red-400/60 text-red-200 text-xs rounded-md">
-                    {authError}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  style={{ backgroundColor: siteConfig.brandColors.gold }}
-                  className="btn-interactive w-full text-[#0A0B11] font-bold text-xs py-3.5 rounded-lg uppercase tracking-wider shadow-lg flex items-center justify-center gap-2"
-                >
-                  <KeyRound className="w-4 h-4" />
-                  <span>Ingresar</span>
-                </button>
-              </form>
-            )}
-
-            {/* VISTA 2: REGISTRARSE (CON CONSENTIMIENTO EXPLÍCITO DE FORMULARIO Y SIN PATRONES OSCUROS) */}
-            {authView === 'register' && (
-              <form onSubmit={handleRegisterSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-[#F4F4F4] mb-1.5">
-                    Nombre completo
-                  </label>
-                  <input
-                    type="text"
-                    value={registerName}
-                    onChange={(e) => setRegisterName(e.target.value)}
-                    placeholder="Tu nombre y apellido"
-                    className="aroma-input w-full border-2 border-neutral-300 focus:border-[#D1B27E] focus:ring-2 focus:ring-[#D1B27E]/30 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none transition-all"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-[#F4F4F4] mb-1.5">
-                    Correo electrónico
-                  </label>
-                  <input
-                    type="email"
-                    value={registerEmail}
-                    onChange={(e) => setRegisterEmail(e.target.value)}
-                    placeholder="tucorreo@ejemplo.com"
-                    className="aroma-input w-full border-2 border-neutral-300 focus:border-[#D1B27E] focus:ring-2 focus:ring-[#D1B27E]/30 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none transition-all"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-[#F4F4F4] mb-1.5">
-                    Crear contraseña
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={registerPassword}
-                      onChange={(e) => setRegisterPassword(e.target.value)}
-                      placeholder="Mínimo 4 caracteres"
-                      className="aroma-input w-full border-2 border-neutral-300 focus:border-[#D1B27E] focus:ring-2 focus:ring-[#D1B27E]/30 rounded-lg pl-3.5 pr-10 py-2.5 text-sm focus:outline-none transition-all"
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((prev) => !prev)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#686868] hover:text-[#0A0B11]"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Casilla de consentimiento desmarcada por defecto (Cero Patrones Oscuros) */}
-                <label className="flex items-start gap-2.5 text-xs text-neutral-300 cursor-pointer pt-1">
-                  <input
-                    type="checkbox"
-                    checked={registerConsentChecked}
-                    onChange={(e) => setRegisterConsentChecked(e.target.checked)}
-                    className="mt-0.5 accent-[#D1B27E] w-4 h-4 shrink-0"
-                    required
-                  />
-                  <span className="leading-relaxed">
-                    He leído y acepto expresamente la{' '}
-                    <button
-                      type="button"
-                      onClick={() => setActiveLegalModal('privacy')}
-                      className="text-[#D1B27E] underline"
-                    >
-                      Política de Privacidad
-                    </button>{' '}
-                    y los{' '}
-                    <button
-                      type="button"
-                      onClick={() => setActiveLegalModal('terms')}
-                      className="text-[#D1B27E] underline"
-                    >
-                      Términos y Condiciones
-                    </button>{' '}
-                    para el tratamiento de mis datos de cuenta.
-                  </span>
-                </label>
-
-                {authError && (
-                  <div className="p-2.5 bg-red-500/20 border border-red-400/60 text-red-200 text-xs rounded-md">
-                    {authError}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  style={{ backgroundColor: siteConfig.brandColors.gold }}
-                  className="btn-interactive w-full text-[#0A0B11] font-bold text-xs py-3.5 rounded-lg uppercase tracking-wider shadow-lg flex items-center justify-center gap-2"
-                >
-                  <UserPlus className="w-4 h-4" />
-                  <span>Crear Cuenta</span>
-                </button>
-              </form>
-            )}
-
-            {/* VISTA 3: RECUPERAR CONTRASEÑA */}
-            {authView === 'forgot' && (
-              <div className="space-y-4">
-                {!authSuccessMsg ? (
-                  <form onSubmit={handleForgotSubmit} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-medium text-[#F4F4F4] mb-1.5">
-                        Ingresa el correo con el que creaste tu cuenta
-                      </label>
-                      <input
-                        type="email"
-                        value={recoveryEmail}
-                        onChange={(e) => setRecoveryEmail(e.target.value)}
-                        placeholder="tucorreo@ejemplo.com"
-                        className="aroma-input w-full border-2 border-neutral-300 focus:border-[#D1B27E] focus:ring-2 focus:ring-[#D1B27E]/30 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none transition-all"
-                        required
-                      />
-                    </div>
-
-                    <label className="flex items-start gap-2.5 text-xs text-neutral-300 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={recoveryConsentChecked}
-                        onChange={(e) => setRecoveryConsentChecked(e.target.checked)}
-                        className="mt-0.5 accent-[#D1B27E] w-4 h-4 shrink-0"
-                        required
-                      />
-                      <span>
-                        Autorizo el uso de mi correo únicamente para recibir el enlace de restablecimiento de contraseña conforme a la{' '}
-                        <button
-                          type="button"
-                          onClick={() => setActiveLegalModal('privacy')}
-                          className="text-[#D1B27E] underline"
-                        >
-                          Política de Privacidad
-                        </button>
-                        .
-                      </span>
-                    </label>
-
-                    {authError && (
-                      <div className="p-2.5 bg-red-500/20 border border-red-400/60 text-red-200 text-xs rounded-md">
-                        {authError}
-                      </div>
-                    )}
-
-                    <button
-                      type="submit"
-                      style={{ backgroundColor: siteConfig.brandColors.gold }}
-                      className="btn-interactive w-full text-[#0A0B11] font-bold text-xs py-3.5 rounded-lg uppercase tracking-wider shadow-lg flex items-center justify-center gap-2"
-                    >
-                      <Mail className="w-4 h-4" />
-                      <span>Enviar Correo de Recuperación</span>
-                    </button>
-                  </form>
-                ) : (
-                  <div className="p-4 bg-emerald-500/15 border border-emerald-400/50 rounded-lg space-y-3 text-xs">
-                    <div className="flex items-center gap-2 text-emerald-300 font-bold">
-                      <CheckCircle2 className="w-4 h-4 shrink-0" />
-                      <span>¡Correo Enviado Correctamente!</span>
-                    </div>
-                    <p className="text-neutral-200 leading-relaxed">{authSuccessMsg}</p>
-                    <div className="p-3 bg-black/40 rounded border border-white/10 text-[11px] text-neutral-300">
-                      <div><strong>De:</strong> {ADMIN_EMAIL}</div>
-                      <div><strong>Para:</strong> {recoveryEmail}</div>
-                      <div><strong>Asunto:</strong> Restablecer contraseña de AromaLuxe Perfumes</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAuthError('');
-                        setAuthView('reset-simulation');
-                      }}
-                      className="btn-interactive w-full bg-[#D1B27E] text-[#0A0B11] font-bold py-2.5 rounded-md text-xs"
-                    >
-                      Abrir enlace del correo y cambiar contraseña ahora →
-                    </button>
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthView('login');
-                    setAuthError('');
-                    setAuthSuccessMsg('');
-                  }}
-                  className="w-full text-center text-xs text-neutral-400 hover:text-white pt-1"
-                >
-                  ← Volver a Iniciar Sesión
-                </button>
-              </div>
-            )}
-
-            {/* VISTA 4: CAMBIAR LA CONTRASEÑA DESDE EL ENLACE DEL CORREO */}
-            {authView === 'reset-simulation' && (
-              <form onSubmit={handleResetPasswordConfirm} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-[#F4F4F4] mb-1.5">
-                    Nueva contraseña para {recoveryEmail}
-                  </label>
                   <input
                     type="password"
-                    value={newResetPassword}
-                    onChange={(e) => setNewResetPassword(e.target.value)}
-                    placeholder="Escribe tu nueva contraseña"
-                    className="aroma-input w-full border-2 border-neutral-300 focus:border-[#D1B27E] focus:ring-2 focus:ring-[#D1B27E]/30 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none transition-all"
-                    required
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="Contraseña"
+                    className="aroma-input w-full border border-neutral-300 rounded-md px-3 py-2 text-xs"
                   />
-                </div>
-
-                {authError && (
-                  <div className="p-2.5 bg-red-500/20 border border-red-400/60 text-red-200 text-xs rounded-md">
-                    {authError}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  style={{ backgroundColor: siteConfig.brandColors.gold }}
-                  className="btn-interactive w-full text-[#0A0B11] font-bold text-xs py-3.5 rounded-lg uppercase tracking-wider"
-                >
-                  Guardar Nueva Contraseña
-                </button>
-              </form>
-            )}
+                  <button
+                    type="submit"
+                    className="w-full bg-white/10 hover:bg-[#D1B27E] hover:text-[#0A0B11] border border-white/20 font-bold text-xs py-2.5 rounded-md transition flex items-center justify-center gap-2"
+                  >
+                    <KeyRound className="w-3.5 h-3.5" />
+                    Ingresar al panel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminLogin(false)}
+                    className="w-full text-center text-[10px] text-neutral-500 hover:text-white"
+                  >
+                    Cancelar
+                  </button>
+                </form>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -5250,6 +5149,7 @@ export default function App() {
                 </div>
                 <div className="space-y-0.5">
                   {[
+                    { id: 'leads', label: 'Cotizaciones', icon: MessageCircle },
                     { id: 'users', label: 'Usuarios y permisos', icon: Users },
                     { id: 'settings', label: 'Configuración & SDKs', icon: Settings }
                   ].map((item) => {
@@ -5595,6 +5495,49 @@ export default function App() {
                               placeholder="O pegar URL de fotografía..."
                               className="aroma-input w-full border border-neutral-300 rounded-md px-3 py-1.5 text-xs"
                             />
+                            <div className="w-full border-t border-white/10 pt-3 space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <label className="block text-[11px] text-neutral-300">Imagen interactiva (hover)</label>
+                                <span className={'text-[9px] px-1.5 py-0.5 rounded shrink-0 ' + (editingProduct.interactiveImage ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/10 text-neutral-400')}>
+                                  {editingProduct.interactiveImage ? 'Activa' : 'Sin asignar'}
+                                </span>
+                              </div>
+                              <input
+                                ref={interactiveFileInputRef}
+                                type="file"
+                                accept="image/*"
+                                onChange={handleInteractiveImageUpload}
+                                className="hidden"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => interactiveFileInputRef.current?.click()}
+                                className="w-full border border-[#D1B27E]/60 text-[#D1B27E] hover:bg-[#D1B27E] hover:text-[#0A0B11] font-bold text-xs py-2.5 px-3 rounded-lg flex items-center justify-center gap-2 transition"
+                              >
+                                <ImageIcon className="w-3.5 h-3.5" />
+                                Subir imagen interactiva
+                              </button>
+                              <input
+                                type="text"
+                                value={editingProduct.interactiveImage || ''}
+                                onChange={(e) => setEditingProduct({ ...editingProduct, interactiveImage: e.target.value })}
+                                placeholder="O pegar URL de la imagen hover..."
+                                className="aroma-input w-full border border-neutral-300 rounded-md px-3 py-1.5 text-xs"
+                              />
+                              <p className="text-[10px] text-neutral-500 leading-relaxed">
+                                Se despliega al pasar el mouse sobre el perfume en el catálogo.
+                              </p>
+                              {editingProduct.interactiveImage && (
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingProduct({ ...editingProduct, interactiveImage: '' })}
+                                  className="text-[10px] text-red-400 hover:underline"
+                                >
+                                  Quitar imagen interactiva
+                                </button>
+                              )}
+                            </div>
+
                           </div>
 
                           {/* Datos Completos del Perfume */}
@@ -7282,6 +7225,111 @@ export default function App() {
               {/* ===============================================================
                   MÓDULO 11: USUARIOS Y PERMISOS
               =============================================================== */}
+              {/* ===============================================================
+                  MÓDULO: COTIZACIONES Y CONTACTO (SQLite)
+              ================================================================ */}
+              {adminTab === 'leads' && (
+                <div className="max-w-6xl mx-auto space-y-5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 pb-4">
+                    <div>
+                      <span className="text-[10px] uppercase tracking-[0.2em] text-[#D1B27E] font-bold">
+                        SOLICITUDES RECIBIDAS
+                      </span>
+                      <h2 className="font-serif-luxury text-2xl font-semibold mt-1">Cotizaciones y contacto</h2>
+                      <p className="text-xs text-[#686868] mt-1">
+                        Cada cotización de carrito y mensaje por WhatsApp queda registrado aquí.
+                      </p>
+                    </div>
+                    <button
+                      onClick={loadLeads}
+                      className="btn-interactive flex items-center gap-2 bg-[#0A0B11] text-white px-4 py-2 rounded-md text-xs font-semibold"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${leadsLoading ? 'animate-spin' : ''}`} />
+                      Actualizar
+                    </button>
+                  </div>
+
+                  {leadsError && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 text-xs px-3 py-2 rounded">
+                      {leadsError}
+                    </div>
+                  )}
+
+                  {!leadsLoading && leads.length === 0 && !leadsError ? (
+                    <div className="bg-white border border-neutral-200 rounded-lg p-10 text-center">
+                      <MessageSquare className="w-10 h-10 mx-auto text-neutral-300" />
+                      <p className="text-sm font-medium mt-3">Todavía no hay cotizaciones</p>
+                      <p className="text-xs text-[#686868] mt-1">
+                        Aparecerán cuando un cliente cotice su carrito o escriba por WhatsApp.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {leads.map((lead) => (
+                        <div key={lead.id} className="bg-white border border-neutral-200 rounded-lg p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-100 pb-2 mb-3">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${lead.type === 'quote' ? 'bg-[#D1B27E]/20 text-[#8A6D3B]' : 'bg-blue-50 text-blue-700'}`}>
+                                {lead.type === 'quote' ? 'Cotización' : 'Contacto'}
+                              </span>
+                              <span className="text-[10px] text-[#686868]">
+                                {lead.createdAt ? new Date(lead.createdAt).toLocaleString('es-CL') : ''}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-neutral-400">{lead.id}</span>
+                          </div>
+
+                          {lead.type === 'quote' ? (
+                            <div className="space-y-3">
+                              {lead.payload?.customer && (
+                                <div className="text-xs">
+                                  <span className="font-semibold">{lead.payload.customer.name}</span>
+                                  <span className="text-[#686868]"> · {lead.payload.customer.email}</span>
+                                </div>
+                              )}
+                              {Array.isArray(lead.payload?.items) && lead.payload.items.length > 0 && (
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="text-left text-[#686868] border-b border-neutral-200">
+                                        <th className="py-1.5 font-medium">Perfume</th>
+                                        <th className="py-1.5 font-medium">Cant.</th>
+                                        <th className="py-1.5 font-medium text-right">Subtotal</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {lead.payload.items.map((it, idx) => (
+                                        <tr key={idx} className="border-b border-neutral-100">
+                                          <td className="py-1.5">{it.brand} · {it.name}</td>
+                                          <td className="py-1.5">{it.qty}</td>
+                                          <td className="py-1.5 text-right">{formatCLP((it.price || 0) * (it.qty || 0))}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                              <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs pt-1">
+                                <span>Subtotal: <strong>{formatCLP(lead.payload?.subtotal || 0)}</strong></span>
+                                {!!lead.payload?.discount && (
+                                  <span>Descuento: <strong>-{formatCLP(lead.payload.discount)}</strong></span>
+                                )}
+                                <span>Total: <strong className="text-[#8A6D3B]">{formatCLP(lead.payload?.total || 0)}</strong></span>
+                                {lead.payload?.coupon && <span>Cupón: <strong>{lead.payload.coupon}</strong></span>}
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-xs whitespace-pre-wrap">
+                              {lead.payload?.message || JSON.stringify(lead.payload)}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {adminTab === 'users' && (
                 <div className="max-w-5xl mx-auto space-y-6">
                   <div className="flex items-center justify-between">
@@ -7687,6 +7735,24 @@ export default function App() {
                           }
                           className="aroma-input w-full border border-neutral-300 rounded px-3 py-2 text-xs"
                         />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-neutral-300 mb-1">Google Client ID (Inicio de sesión)</label>
+                        <input
+                          type="text"
+                          value={siteConfig.integrations?.googleClientId || ''}
+                          placeholder="xxxxxxxx.apps.googleusercontent.com"
+                          onChange={(e) =>
+                            setSiteConfig({
+                              ...siteConfig,
+                              integrations: { ...(siteConfig.integrations || {}), googleClientId: e.target.value }
+                            })
+                          }
+                          className="aroma-input w-full border border-neutral-300 rounded px-3 py-2 text-xs"
+                        />
+                        <p className="text-[10px] text-neutral-500 mt-1">
+                          Vacío = modo demostración local. Con Client ID = botón oficial de Google.
+                        </p>
                       </div>
                     </div>
                   </div>

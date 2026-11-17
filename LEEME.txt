@@ -101,3 +101,8 @@ IMPORTANTE
   tienda no deberia pasar; si pasa, entra a Supabase y clic en "Restore".
 - NUNCA compartas la service_role key ni la contraseña de la base de datos.
   La publishable key de src/supabaseConfig.js es publica por diseno.
+
+RAILWAY
+El servicio debe tener Auto Deploy activo en Settings -> Source. Si dice
+"Auto deploy unavailable / Could not load branches", tocar Retry o reconectar
+GitHub. Sin eso, los push a main no generan deployments nuevos.

@@ -7754,6 +7754,31 @@ export default function App() {
                           Vacío = modo demostración local. Con Client ID = botón oficial de Google.
                         </p>
                       </div>
+                      <div>
+                        <label className="block text-xs text-neutral-300 mb-1">Correos con permisos de administrador (uno por línea)</label>
+                        <textarea
+                          key={(siteConfig.integrations?.adminEmails || []).join('|')}
+                          defaultValue={(siteConfig.integrations?.adminEmails || []).join('\n')}
+                          rows={3}
+                          placeholder={ADMIN_EMAIL}
+                          onBlur={(e) => {
+                            const emails = [...new Set(
+                              e.target.value
+                                .split('\n')
+                                .map((value) => value.trim().toLowerCase())
+                                .filter(Boolean)
+                            )];
+                            setSiteConfig((prev) => ({
+                              ...prev,
+                              integrations: { ...(prev.integrations || {}), adminEmails: emails }
+                            }));
+                          }}
+                          className="aroma-input w-full border border-neutral-300 rounded px-3 py-2 text-xs"
+                        />
+                        <p className="text-[10px] text-neutral-500 mt-1">
+                          El correo principal siempre conserva el acceso. Los demás entran con Google.
+                        </p>
+                      </div>
                     </div>
                   </div>
 

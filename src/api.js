@@ -15,6 +15,9 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 });
 
 const ADMIN_EMAIL = 'aromaluxe.catalogo@gmail.com';
+// Correos con permisos reales de administrador. El correo principal siempre se
+// conserva como salvaguarda; el resto se administra desde el Panel Admin.
+let adminEmailsCache = null;
 const BUCKET = 'aromaluxe-images';
 const TABLE_STATE = 'aromaluxe_kv';
 const TABLE_LEADS = 'aromaluxe_leads';
@@ -34,10 +37,43 @@ const COLLECTIONS = [
 
 const errorMessage = (error, fallback) => error?.message || fallback || 'Error al contactar con Supabase.';
 
-function mapUser(user) {
+function normalizeEmails(list) {
+  if (!Array.isArray(list)) return [];
+  return [...new Set(
+    list.map((email) => String(email).trim().toLowerCase()).filter(Boolean)
+  )];
+}
+
+function resolveAdminEmails(config) {
+  return [...new Set([ADMIN_EMAIL, ...normalizeEmails(config?.integrations?.adminEmails)])];
+}
+
+function setAdminEmailsFromConfig(config) {
+  if (config?.integrations && Array.isArray(config.integrations.adminEmails)) {
+    adminEmailsCache = resolveAdminEmails(config);
+  }
+}
+
+async function getAdminEmails() {
+  if (adminEmailsCache) return adminEmailsCache;
+  try {
+    const { data, error } = await supabase
+      .from(TABLE_STATE)
+      .select('value')
+      .eq('key', 'siteConfig')
+      .maybeSingle();
+    if (error) throw error;
+    adminEmailsCache = resolveAdminEmails(data?.value);
+  } catch {
+    adminEmailsCache = [ADMIN_EMAIL];
+  }
+  return adminEmailsCache;
+}
+
+function mapUser(user, adminEmails) {
   if (!user) return null;
   const email = String(user.email || '').toLowerCase();
-  const isAdmin = email === ADMIN_EMAIL;
+  const isAdmin = (adminEmails || [ADMIN_EMAIL]).includes(email);
   return {
     id: user.id,
     name: user.user_metadata?.name || email.split('@')[0] || 'Usuario',
@@ -72,7 +108,7 @@ async function getAuthUser() {
   try {
     const { data, error } = await supabase.auth.getUser();
     if (error) return null;
-    return mapUser(data?.user);
+    return mapUser(data?.user, await getAdminEmails());
   } catch {
     return null;
   }
@@ -113,6 +149,7 @@ export const api = {
     for (const row of data || []) state[row.key] = row.value;
 
     const siteConfig = state.siteConfig && typeof state.siteConfig === 'object' ? state.siteConfig : {};
+    setAdminEmailsFromConfig(siteConfig);
     state.siteConfig = {
       ...siteConfig,
       integrations: {
@@ -174,6 +211,7 @@ export const api = {
         { onConflict: 'key' }
       );
     if (error) throw new Error(errorMessage(error, 'No se pudo guardar ' + key));
+    if (key === 'siteConfig') adminEmailsCache = null;
     return { ok: true };
   },
 
@@ -187,7 +225,7 @@ export const api = {
       password: String(password || '')
     });
     if (error) throw new Error('Correo o contraseña incorrectos.');
-    const user = mapUser(data?.user);
+    const user = mapUser(data?.user, await getAdminEmails());
     writeLocalSession(user);
     return { user };
   },
@@ -197,7 +235,7 @@ export const api = {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       throw new Error('Ingresa un correo válido.');
     }
-    if (cleanEmail === ADMIN_EMAIL) {
+    if ((await getAdminEmails()).includes(cleanEmail)) {
       throw new Error('Usa el acceso administrativo para esa cuenta.');
     }
     const user = {
@@ -225,7 +263,7 @@ export const api = {
     if (error) {
       throw new Error('No se pudo verificar el acceso con Google. Activa el proveedor Google en Supabase o usa el acceso demo.');
     }
-    const user = mapUser(data?.user);
+    const user = mapUser(data?.user, await getAdminEmails());
     writeLocalSession(user);
     return { user };
   },

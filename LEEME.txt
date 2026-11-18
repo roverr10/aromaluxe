@@ -63,8 +63,8 @@ Nota: no subas server/.env ni server/data/ a un repositorio publico.
 =======================================================================
 PRODUCCION (RAILWAY + SUPABASE)  <-- LA PAGINA PUBLICADA
 =======================================================================
-Railway solo publica el frontend estatico (no corre el backend Express).
-Por eso, a partir de ahora la app usa Supabase para guardar TODO:
+Railway corre el servidor Express, que sirve el build de Vite (dist/) y
+tambien expone la API. Pero la app usa Supabase para guardar TODO:
 
   - Catalogo, configuracion, banners, cupones, etc. -> tabla aromaluxe_kv
   - Fotografias de perfumes (estatica e interactiva) -> bucket aromaluxe-images
@@ -90,6 +90,39 @@ COMO FUNCIONA
 - Acceso administrativo: aromaluxe.catalogo@gmail.com / seccion2
 - Clientes: boton "Ingresar con Google" (modo demo). Para Google real,
   activa el proveedor Google en Supabase -> Authentication -> Providers.
+
+GOOGLE REAL - OPCION GRATUITA (SUPABASE AUTH + GOOGLE OAUTH)
+============================================================
+Supabase Free incluye proveedores de acceso social y 50.000 usuarios activos
+por mes, asi que no hace falta contratar Auth0, Clerk ni Firebase.
+
+1. Google Cloud (gratis):
+   https://console.cloud.google.com/auth/clients
+   - Crea un proyecto si no tenes uno.
+   - Configura la pantalla de consentimiento (User Type: External).
+   - Crea un OAuth client ID de tipo "Web application".
+   - Authorized JavaScript origins:
+       https://aromaluxe-production.up.railway.app
+       http://localhost:5173
+   - Authorized redirect URIs:
+       https://brkwchydjiapluinbboo.supabase.co/auth/v1/callback
+   - Copia el Client ID y el Client Secret.
+
+2. Supabase:
+   https://supabase.com/dashboard/project/brkwchydjiapluinbboo/auth/providers
+   - Habilita Google y pega el Client ID y el Client Secret. Guarda.
+   - Authentication -> URL Configuration:
+       Site URL = https://aromaluxe-production.up.railway.app
+       Redirect URLs = https://aromaluxe-production.up.railway.app/**
+
+3. AromaLuxe:
+   Panel Admin -> Configuracion & SDKs -> "Google Client ID (Inicio de sesion)"
+   -> pega el Client ID -> Guardar.
+   El modal deja de mostrar el modo demo y muestra el boton oficial de Google.
+
+Nota: mientras la app de Google este en "Testing", solo pueden ingresar los
+correos agregados como test users. Publica la pantalla de consentimiento para
+que cualquier persona pueda entrar.
 
 EL BACKEND LOCAL SIGUE AHI
 server/ sigue siendo el backend Express + SQLite original, pero el frontend

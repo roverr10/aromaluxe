@@ -314,11 +314,33 @@ export const api = {
     return { ok: true, id };
   },
 
+  // Eventos superficiales de navegación. Se guardan en la misma tabla que las
+  // cotizaciones, con type = 'analytics', para no crear infraestructura nueva.
+  // Nunca incluyen precios, totales ni datos contables.
+  trackEvent: async (event, payload = {}) => {
+    try {
+      const id = `evt-${Date.now()}-` +
+        (globalThis.crypto?.randomUUID?.() || Date.now().toString(36)).slice(0, 8);
+      const { error } = await supabase.from(TABLE_LEADS).insert({
+        id,
+        type: 'analytics',
+        payload: { event: String(event || 'unknown'), ...payload },
+        created_at: new Date().toISOString()
+      });
+      if (error) throw error;
+      return { ok: true };
+    } catch {
+      // La analítica nunca debe interrumpir la navegación del cliente.
+      return { ok: false };
+    }
+  },
+
   getLeads: async () => {
     await requireAdmin();
     const { data, error } = await supabase
       .from(TABLE_LEADS)
       .select('id,type,payload,created_at')
+      .in('type', ['quote', 'contact'])
       .order('created_at', { ascending: false })
       .limit(200);
     if (error) throw new Error(errorMessage(error, 'No se pudieron cargar las cotizaciones.'));
@@ -328,6 +350,24 @@ export const api = {
         type: row.type,
         createdAt: row.created_at,
         payload: row.payload || {}
+      }))
+    };
+  },
+
+  getAnalytics: async () => {
+    await requireAdmin();
+    const { data, error } = await supabase
+      .from(TABLE_LEADS)
+      .select('type,payload,created_at')
+      .in('type', ['analytics', 'quote'])
+      .order('created_at', { ascending: false })
+      .limit(5000);
+    if (error) throw new Error(errorMessage(error, 'No se pudieron cargar las analíticas.'));
+    return {
+      items: (data || []).map((row) => ({
+        type: row.type,
+        payload: row.payload || {},
+        createdAt: row.created_at
       }))
     };
   }

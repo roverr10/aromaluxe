@@ -1994,6 +1994,28 @@ export default function App() {
     if (adminTab === 'leads') loadLeads();
   }, [adminTab]);
 
+  // Analítica superficial: solo interacciones de la página, sin datos monetarios.
+  const [analyticsItems, setAnalyticsItems] = useState([]);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState('');
+
+  const loadAnalytics = async () => {
+    setAnalyticsLoading(true);
+    setAnalyticsError('');
+    try {
+      const { items } = await api.getAnalytics();
+      setAnalyticsItems(items || []);
+    } catch (err) {
+      setAnalyticsError(err.message || 'No se pudieron cargar las analíticas.');
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (adminTab === 'analytics') loadAnalytics();
+  }, [adminTab]);
+
   // Blog: publicaciones y navegación pública (#blog, #blog/url-del-articulo)
   const [blogPosts, setBlogPosts] = useState(() => {
     try {
@@ -2186,6 +2208,24 @@ export default function App() {
     );
   };
 
+  // Eventos reales de navegación (perfumes, carrito, marcas y búsquedas).
+  const trackPageEvent = (event, payload = {}) => {
+    if (cookieConsent && cookieConsent.analytics === false) return;
+    api.trackEvent(event, payload).catch(() => {});
+  };
+
+  const lastSearchTrackRef = useRef({ term: '', at: 0 });
+
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('aromaluxe_pageview_v1')) return;
+      sessionStorage.setItem('aromaluxe_pageview_v1', '1');
+      trackPageEvent('page_view', { path: window.location.pathname || '/' });
+    } catch {
+      // sessionStorage puede estar bloqueado; no es crítico
+    }
+  }, []);
+
   const recordPerfumeInteraction = (productId, type = 'click') => {
     if (cookieConsent && cookieConsent.analytics === false) return;
     const stamp = new Date().toLocaleString('es-CL', {
@@ -2344,6 +2384,11 @@ export default function App() {
       return;
     }
     recordPerfumeInteraction(product.id, 'cart');
+    trackPageEvent('add_to_cart', {
+      productId: product.id,
+      name: product.name,
+      brand: product.brand
+    });
     const sizeLabel = selectedSize || (product.sizes && product.sizes[0]) || '100 ml';
     setQuoteCart((prev) => {
       const exists = prev.find((item) => item.id === product.id && (item.selectedSize || '100 ml') === sizeLabel);
@@ -2463,6 +2508,11 @@ export default function App() {
 
   const openProductFragranticaModal = (product) => {
     recordPerfumeInteraction(product.id, 'click');
+    trackPageEvent('product_view', {
+      productId: product.id,
+      name: product.name,
+      brand: product.brand
+    });
     setModalQty(1);
     setSelectedSizeModal((product.sizes && product.sizes[0]) || '100 ml');
     setSelectedProductModal(product);
@@ -2792,6 +2842,71 @@ export default function App() {
     return { published, inactive, drafts, outOfStock, lowStock, recentModified, mostClickedPerfumes, totalClicks, totalCartAdds };
   }, [products, perfumeTelemetry]);
 
+  const analyticsStats = useMemo(() => {
+    const events = analyticsItems.filter((it) => it.type === 'analytics');
+    const quotes = analyticsItems.filter((it) => it.type === 'quote');
+
+    const rank = (items, getLabel, limit = 6) => {
+      const counts = new Map();
+      items.forEach((item) => {
+        const label = getLabel(item);
+        if (label) counts.set(String(label), (counts.get(String(label)) || 0) + 1);
+      });
+      return [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, limit)
+        .map(([label, count]) => ({ label, count }));
+    };
+
+    const ofEvent = (name) => events.filter((it) => it.payload?.event === name);
+
+    return {
+      productViews: rank(ofEvent('product_view'), (it) => it.payload?.name || it.payload?.productId),
+      productQuotes: rank(
+        quotes.flatMap((q) => (Array.isArray(q.payload?.items) ? q.payload.items : [])),
+        (it) => it.name || it.id
+      ),
+      brandViews: rank(events.filter((it) => !!it.payload?.brand), (it) => it.payload.brand),
+      cartAdds: rank(ofEvent('add_to_cart'), (it) => it.payload?.name || it.payload?.productId),
+      searches: rank(ofEvent('search'), (it) => it.payload?.term),
+      pageViews: ofEvent('page_view').length,
+      totalEvents: events.length,
+      quoteCount: quotes.length
+    };
+  }, [analyticsItems]);
+
+  const renderRankingCard = (title, rows, emptyText, IconCmp = BarChart3) => {
+    const max = Math.max(1, ...rows.map((row) => row.count));
+    return (
+      <div className="bg-white border border-neutral-200 rounded-lg p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <IconCmp className="w-4 h-4 text-[#8A6D3B]" />
+          <h3 className="text-sm font-semibold">{title}</h3>
+        </div>
+        {rows.length === 0 ? (
+          <p className="text-xs text-[#686868]">{emptyText}</p>
+        ) : (
+          <div className="space-y-3">
+            {rows.map((row, idx) => (
+              <div key={`${row.label}-${idx}`}>
+                <div className="flex items-center justify-between gap-3 text-xs mb-1">
+                  <span className="truncate">{row.label}</span>
+                  <span className="font-bold text-[#8A6D3B] shrink-0">{row.count}</span>
+                </div>
+                <div className="h-1.5 bg-neutral-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-[#D1B27E] rounded-full"
+                    style={{ width: `${Math.round((row.count / max) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Editor del perfil olfativo (acordes, pirámide, longevidad, estela y momento de uso)
   const renderProfileEditor = () => {
     if (!editingProduct) return null;
@@ -3056,6 +3171,15 @@ export default function App() {
                   value={searchQuery}
                   onChange={(e) => {
                     setSearchQuery(e.target.value);
+                    const term = e.target.value.trim();
+                    if (term.length >= 3) {
+                      const now = Date.now();
+                      const last = lastSearchTrackRef.current;
+                      if (last.term !== term && now - last.at > 1500) {
+                        lastSearchTrackRef.current = { term, at: now };
+                        trackPageEvent('search', { term: term.slice(0, 60) });
+                      }
+                    }
                     if (route.view !== 'home') navigatePublic('home');
                     const catSection = document.getElementById('catalogo-grid');
                     if (catSection && e.target.value.length === 1) {
@@ -3537,6 +3661,7 @@ export default function App() {
                             onClick={() => {
                               setSelectedBrand(b.name);
                               setIsBrandDropdownOpen(false);
+                              trackPageEvent('brand_view', { brand: b.name });
                             }}
                             className={`w-full px-4 py-2.5 text-left text-xs flex items-center justify-between transition-all duration-200 hover:bg-[#F4F4F4] hover:pl-5 ${
                               isSelected
@@ -5149,6 +5274,7 @@ export default function App() {
                 </div>
                 <div className="space-y-0.5">
                   {[
+                    { id: 'analytics', label: 'Analítica', icon: Activity },
                     { id: 'leads', label: 'Cotizaciones', icon: MessageCircle },
                     { id: 'users', label: 'Usuarios y permisos', icon: Users },
                     { id: 'settings', label: 'Configuración & SDKs', icon: Settings }
@@ -7225,6 +7351,91 @@ export default function App() {
               {/* ===============================================================
                   MÓDULO 11: USUARIOS Y PERMISOS
               =============================================================== */}
+              {/* ===============================================================
+                  MÓDULO: ANALÍTICA SUPERFICIAL (SIN DATOS CONTABLES)
+              ================================================================ */}
+              {adminTab === 'analytics' && (
+                <div className="max-w-6xl mx-auto space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 pb-4">
+                    <div>
+                      <span className="text-[10px] uppercase tracking-[0.2em] text-[#D1B27E] font-bold">
+                        ANÁLISIS DE LA TIENDA
+                      </span>
+                      <h2 className="font-serif-luxury text-2xl font-semibold mt-1">Analítica de navegación</h2>
+                      <p className="text-xs text-[#686868] mt-1">
+                        Solo interacciones dentro de la página. No incluye precios, ventas ni datos contables.
+                      </p>
+                    </div>
+                    <button
+                      onClick={loadAnalytics}
+                      className="btn-interactive flex items-center gap-2 bg-[#0A0B11] text-white px-4 py-2 rounded-md text-xs font-semibold"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${analyticsLoading ? 'animate-spin' : ''}`} />
+                      Actualizar
+                    </button>
+                  </div>
+
+                  {analyticsError && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 text-xs px-3 py-2 rounded">
+                      {analyticsError}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    {[
+                      { label: 'Visitas registradas', value: analyticsStats.pageViews, icon: Eye },
+                      { label: 'Interacciones', value: analyticsStats.totalEvents, icon: Activity },
+                      { label: 'Cotizaciones', value: analyticsStats.quoteCount, icon: MessageCircle },
+                      { label: 'Búsquedas', value: analyticsStats.searches.reduce((acc, s) => acc + s.count, 0), icon: Search }
+                    ].map((stat, idx) => {
+                      const StatIcon = stat.icon;
+                      return (
+                        <div key={idx} className="bg-white border border-neutral-200 rounded-lg p-4">
+                          <div className="flex items-center gap-2 text-[#686868]">
+                            <StatIcon className="w-4 h-4" />
+                            <span className="text-[10px] uppercase tracking-wider">{stat.label}</span>
+                          </div>
+                          <p className="text-2xl font-serif-luxury font-semibold mt-2">{stat.value}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                    {renderRankingCard(
+                      'Perfumes más clickeados',
+                      analyticsStats.productViews,
+                      'Todavía no hay clics registrados.',
+                      Eye
+                    )}
+                    {renderRankingCard(
+                      'Perfumes más cotizados',
+                      analyticsStats.productQuotes,
+                      'Todavía no hay perfumes en cotizaciones.',
+                      ShoppingBag
+                    )}
+                    {renderRankingCard(
+                      'Marcas más visitadas',
+                      analyticsStats.brandViews,
+                      'Todavía no hay visitas a marcas registradas.',
+                      Tag
+                    )}
+                    {renderRankingCard(
+                      'Más agregados al carrito',
+                      analyticsStats.cartAdds,
+                      'Todavía no hay perfumes agregados al carrito.',
+                      ShoppingCart
+                    )}
+                    {renderRankingCard(
+                      'Búsquedas más frecuentes',
+                      analyticsStats.searches,
+                      'Todavía no hay búsquedas registradas.',
+                      Search
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* ===============================================================
                   MÓDULO: COTIZACIONES Y CONTACTO (SQLite)
               ================================================================ */}

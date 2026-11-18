@@ -1614,6 +1614,11 @@ const applyOfficialProfiles = (list) =>
 
 export default function App() {
   const [apiHydrated, setApiHydrated] = useState(false);
+  // Compuerta de escrituras: solo se abre si getState() terminó correctamente.
+  // Si la lectura falla, los estados siguen siendo los INITIAL_* y persistirlos
+  // sobrescribiría el catálogo/config real en Supabase (fallo ocurrido el 17/11).
+  const [apiWriteReady, setApiWriteReady] = useState(false);
+  const [writableKeys, setWritableKeys] = useState(() => new Set());
   // ============================================================================
   // ESTADOS PRINCIPALES Y PERSISTENCIA
   // ============================================================================
@@ -2063,11 +2068,11 @@ export default function App() {
     };
   }, []);
   useEffect(() => {
-    if (!apiHydrated) return;
+    if (!apiWriteReady || !writableKeys.has('blog')) return;
     api.saveCollection('blog', blogPosts).catch((e) => {
       if (e.status !== 401) console.error('No se pudo guardar el blog', e);
     });
-  }, [blogPosts, apiHydrated]);
+  }, [blogPosts, apiWriteReady, writableKeys]);
   const [editingProduct, setEditingProduct] = useState(null);
   const [adminSearch, setAdminSearch] = useState('');
   const [adminStatusFilter, setAdminStatusFilter] = useState('ALL');
@@ -2128,9 +2133,15 @@ export default function App() {
         }
         setCurrentUser(user || null);
         setApiHydrated(true);
+        // Solo habilitar escrituras de las colecciones que realmente vinieron
+        // de Supabase. Las ausentes se siembran con bootstrap (no sobrescribe).
+        setWritableKeys(new Set(Object.keys(state).filter((k) => state[k] !== null && state[k] !== undefined)));
+        setApiWriteReady(true);
       })
       .catch((err) => {
         console.error('No se pudo conectar con la API; se usa el almacenamiento local.', err);
+        // Ojo: NO activar escrituras aquí. Los estados siguen siendo los valores
+        // iniciales (INITIAL_*); persistirlos borraría el catálogo y la config.
         setApiHydrated(true);
       });
     return () => { alive = false; };
@@ -2159,16 +2170,17 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Persistencia en la API (SQLite) — solo después de la carga inicial
+  // Persistencia en Supabase — solo tras lectura exitosa y solo de colecciones
+  // que existen en la base. Nunca se escriben los valores por defecto.
   const persist = (key, value) => {
-    if (!apiHydrated) return;
+    if (!apiWriteReady || !writableKeys.has(key)) return;
     api.saveCollection(key, value).catch((e) => {
       if (e.status !== 401) console.error('No se pudo guardar ' + key, e);
     });
   };
 
-  useEffect(() => { persist('products', products); }, [products, apiHydrated]);
-  useEffect(() => { persist('siteConfig', siteConfig); }, [siteConfig, apiHydrated]);
+  useEffect(() => { persist('products', products); }, [products, apiWriteReady, writableKeys]);
+  useEffect(() => { persist('siteConfig', siteConfig); }, [siteConfig, apiWriteReady, writableKeys]);
   useEffect(() => {
     persist('brands', brandsList);
     persist('categories', categoriesList);
@@ -2178,9 +2190,9 @@ export default function App() {
     persist('coupons', couponsList);
     persist('reviews', reviewsList);
     persist('audit', adminActivityLogs);
-  }, [brandsList, categoriesList, olfactoryFamilies, inventoryLogs, bannersList, couponsList, reviewsList, adminActivityLogs, apiHydrated]);
-  useEffect(() => { persist('users', usersDb); }, [usersDb, apiHydrated]);
-  useEffect(() => { persist('telemetry', perfumeTelemetry); }, [perfumeTelemetry, apiHydrated]);
+  }, [brandsList, categoriesList, olfactoryFamilies, inventoryLogs, bannersList, couponsList, reviewsList, adminActivityLogs, apiWriteReady, writableKeys]);
+  useEffect(() => { persist('users', usersDb); }, [usersDb, apiWriteReady, writableKeys]);
+  useEffect(() => { persist('telemetry', perfumeTelemetry); }, [perfumeTelemetry, apiWriteReady, writableKeys]);
 
   // El carrito sigue en localStorage para que no se pierda al recargar
   useEffect(() => {

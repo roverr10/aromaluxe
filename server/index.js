@@ -23,6 +23,7 @@ import {
 } from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DIST_DIR = path.resolve(__dirname, '../dist');
 const app = express();
 
 const PORT = Number(process.env.PORT) || 3001;
@@ -373,6 +374,13 @@ app.get('/api/leads', (req, res) => {
       payload: (() => { try { return JSON.parse(r.payload); } catch { return {}; } })()
     }))
   });
+});
+
+// En producción el mismo proceso sirve el build de Vite y la API.
+app.use(express.static(DIST_DIR, { index: false, maxAge: '1h' }));
+app.use((req, res, next) => {
+  if (req.method !== 'GET' || req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) return next();
+  res.sendFile(path.join(DIST_DIR, 'index.html'));
 });
 
 app.use((err, _req, res, _next) => {

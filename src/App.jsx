@@ -1806,19 +1806,6 @@ export default function App() {
   const [recentlyAddedIds, setRecentlyAddedIds] = useState({});
   const [cartBounce, setCartBounce] = useState(false);
 
-  const resetFactoryDefaults = () => {
-    setProducts(applyOfficialProfiles(INITIAL_PRODUCTS).map((p, idx) => normalizeProductDefaults(p, idx)));
-    setBlogPosts(INITIAL_BLOG_POSTS);
-    setSiteConfig(INITIAL_SITE_CONFIG);
-    setBrandsList(INITIAL_BRANDS);
-    setCategoriesList(INITIAL_CATEGORIES);
-    setOlfactoryFamilies(INITIAL_OLFACTORY_FAMILIES);
-    setBannersList(INITIAL_BANNERS);
-    setCouponsList(INITIAL_COUPONS);
-    setReviewsList(INITIAL_REVIEWS);
-    showToast('Base de datos y configuración restauradas a los valores originales');
-  };
-
   // Modales: Notas de Perfumes Mini-Menu, Blog, Políticas, WhatsApp
   const [selectedProductModal, setSelectedProductModal] = useState(null);
   const [modalQty, setModalQty] = useState(1);
@@ -5151,14 +5138,6 @@ export default function App() {
             </div>
 
             <div className="flex items-center gap-2.5">
-              <button
-                onClick={resetFactoryDefaults}
-                className="text-xs text-[#686868] hover:text-[#0A0B11] border border-neutral-200 bg-white hover:bg-neutral-50 px-3 py-1.5 rounded-md flex items-center gap-1.5 transition"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Restaurar Base</span>
-              </button>
-
               <button
                 onClick={() => setIsAdminPanelOpen(false)}
                 className="bg-[#0A0B11] hover:bg-neutral-800 text-white font-medium text-xs px-4 py-2 rounded-md flex items-center gap-1.5 transition"

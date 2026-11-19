@@ -7938,24 +7938,6 @@ export default function App() {
                           className="aroma-input w-full border border-neutral-300 rounded px-3 py-2 text-xs"
                         />
                       </div>
-                      <div>
-                        <label className="block text-xs text-neutral-300 mb-1">Google Client ID (Inicio de sesión)</label>
-                        <input
-                          type="text"
-                          value={siteConfig.integrations?.googleClientId || ''}
-                          placeholder="xxxxxxxx.apps.googleusercontent.com"
-                          onChange={(e) =>
-                            setSiteConfig({
-                              ...siteConfig,
-                              integrations: { ...(siteConfig.integrations || {}), googleClientId: e.target.value }
-                            })
-                          }
-                          className="aroma-input w-full border border-neutral-300 rounded px-3 py-2 text-xs"
-                        />
-                        <p className="text-[10px] text-neutral-500 mt-1">
-                          Vacío = modo demostración local. Con Client ID = botón oficial de Google.
-                        </p>
-                      </div>
                     </div>
                   </div>
 
